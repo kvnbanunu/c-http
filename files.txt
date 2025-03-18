@@ -1,1 +1,1 @@
-server src/main.c src/setup.c src/http.c
+a src/a.c

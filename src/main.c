@@ -9,9 +9,9 @@
 
 typedef struct Context
 {
-    int fd;
+    int                fd;
     struct sockaddr_in addr;
-    socklen_t addr_len;
+    socklen_t          addr_len;
 } ctx;
 
 static void setup();
@@ -19,7 +19,7 @@ static void setup_sig_handler();
 static void sig_handler();
 static void cleanup();
 
-static volatile sig_atomic_t running = 1; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static volatile sig_atomic_t running = 1;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 int main(void)
 {
