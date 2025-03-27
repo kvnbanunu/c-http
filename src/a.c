@@ -1,8 +1,8 @@
-#include <stdio.h>
+#include "handler.h"
 #include <stdlib.h>
 
 int main(void)
 {
-    printf("Hello worlds");
+    linktest();
     return EXIT_SUCCESS;
 }
