@@ -20,6 +20,8 @@ int         open_requested_file(int *fd, const char *path);
 int         file_readable(const char *file_path);
 int         file_exists(const char *file_path);
 size_t      find_content_length(int fd);
+void        construct_get_response404(int clientfd);
+void        construct_get_response200(int clientfd, const char *mime, int filefd);
 void        linktest(void);
 
 #endif    // !HANDLER_H

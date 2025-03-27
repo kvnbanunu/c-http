@@ -35,17 +35,19 @@ void *handle_request(void *arg)
     // check for get, head, post
     if(strcmp("GET", info.method) == 0)
     {
-        size_t      content_length;
-        const char *filepath;
+        // size_t      content_length;
+        const char *mime;
 
+        printf("%s\n", info.path);
         // error handle if path is not real and stuff
         if(file_verification(info.path) == -1)
         {
             // send 404 error back to client
-            construct_response(clientfd, "404", NULL, "text/html", 0);
+            construct_get_response404(clientfd);
             return NULL;
         }
 
+        printf("opening requested file..\n");
         // handle
         if(open_requested_file(&requestedfd, info.path) == -1)
         {
@@ -53,9 +55,10 @@ void *handle_request(void *arg)
             pthread_exit(NULL);
         }
 
-        filepath       = get_mime_type(info.path);
-        content_length = find_content_length(clientfd);
-        construct_response(clientfd, "200 OK", buffer, filepath, content_length);
+        mime = get_mime_type(info.path);
+        // content_length = find_content_length(clientfd);
+        // construct_response(clientfd, "200 OK", buffer, mime, content_length);
+        construct_get_response200(clientfd, mime, requestedfd);
     }
 
     else if(strcmp("HEAD", info.method) == 0)
@@ -93,11 +96,12 @@ void construct_response(int clientfd, const char *status, const char *body, cons
              sizeof(response),
              "HTTP/1.0 %s\r\n"
              "Content-Type: %s\r\n"
-             "Content-Length %zu\r\n\r\n",
+             "Content-Length: %zu\r\n\r\n",
              status,
              mime,
              body_len);
 
+    printf("%s", response);
     write(clientfd, response, strlen(response));
 
     if(body != NULL)
@@ -174,11 +178,21 @@ const char *get_mime_type(const char *file_path)
 
 int file_verification(const char *file_path)
 {
-    int retval;
+    int  retval;
+    int  a;
+    int  b;
+    char file_path_formatted[BUFFER_SIZE];
 
+    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", file_path);
+
+    a      = file_readable(file_path_formatted);
+    b      = file_exists(file_path_formatted);
     retval = -1;
 
-    if(file_readable(file_path) == 0 && file_exists(file_path) == 0)
+    printf("%s\n", file_path_formatted);
+    printf("readable: %d exists: %d\n", a, b);
+
+    if(file_readable(file_path_formatted) == 0 && file_exists(file_path_formatted) == 0)
     {
         retval = 0;
     }
@@ -188,7 +202,11 @@ int file_verification(const char *file_path)
 
 int open_requested_file(int *fd, const char *path)
 {
-    *fd = open(path, O_RDONLY | O_CLOEXEC);
+    char file_path_formatted[BUFFER_SIZE];
+
+    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
+
+    *fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
     if(*fd < 0)
     {
         perror("open");
@@ -235,4 +253,34 @@ size_t find_content_length(int fd)
 void linktest(void)
 {
     printf("link success\n");
+}
+
+void construct_get_response404(int clientfd)
+{
+    const char body[] = "<html><body><h1>404 Not Found</h1></body></html>";
+    construct_response(clientfd, "404 Not Found", body, "text/html", strlen(body));
+}
+
+void construct_get_response200(int clientfd, const char *mime, int filefd)
+{
+    size_t  fileSize;
+    char   *buffer;
+    ssize_t bytesread;
+
+    fileSize = find_content_length(filefd);
+
+    buffer = (char *)malloc(sizeof(char) * fileSize);
+
+    bytesread = read(filefd, buffer, fileSize);
+
+    if(bytesread < 0)
+    {
+        construct_get_response404(clientfd);
+        free(buffer);
+    }
+    else
+    {
+        construct_response(clientfd, "200 OK", buffer, mime, fileSize);
+        free(buffer);
+    }
 }
