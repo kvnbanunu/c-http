@@ -26,7 +26,7 @@ void *handle_request(void *arg)
     {
         // handle reading error
         perror("read");
-        pthread_exit(NULL)
+        pthread_exit(NULL);
     }
 
     // parse
@@ -49,7 +49,7 @@ void *handle_request(void *arg)
         // handle
         if(open_requested_file(&requestedfd, info.path) == -1)
         {
-            fprintf(stderr, "");
+            fprintf(stderr, "Failed to open requested file");
             pthread_exit(NULL);
         }
 
