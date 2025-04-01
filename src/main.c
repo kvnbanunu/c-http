@@ -16,6 +16,11 @@ static void sigint_handler(int signum);
 
 static volatile sig_atomic_t exit_flag = 0;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
+static void sig_handler(int sig);
+static void setup_sig_handler(void);
+static void setup(ctx_t *c, char s[INET_ADDRSTRLEN]);
+static void cleanup(const ctx_t *c);
+
 int main(void)
 {
     int                serverfd;
