@@ -1,1 +1,1 @@
-server src/main.c src/setup.c src/http.c
+main src/main.c src/handler.c include/handler.h src/setup.c include/setup.h

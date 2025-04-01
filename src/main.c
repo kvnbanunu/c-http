@@ -1,5 +1,7 @@
+#include "../include/handler.h"
 #include "../include/setup.h"
-#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,14 +9,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-typedef struct Context
-{
-    int fd;
-    struct sockaddr_in addr;
-    socklen_t addr_len;
-} ctx_t;
+#define PORT 8080
 
-static volatile sig_atomic_t running = 1; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static void setup_signal_handler(void);
+static void sigint_handler(int signum);
+
+static volatile sig_atomic_t exit_flag = 0;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 static void sig_handler(int sig);
 static void setup_sig_handler(void);
@@ -23,55 +23,75 @@ static void cleanup(const ctx_t *c);
 
 int main(void)
 {
-    ctx_t ctx = {0};
-    char addr_str[INET_ADDRSTRLEN];
-    int retval = EXIT_FAILURE;
+    int                serverfd;
+    socklen_t          host_addrlen;
+    struct sockaddr_in host_addr;
+    pthread_t          listenerThread;
 
-    setup(&ctx, addr_str);
+    setup_socket(&serverfd);
+    setup_address(&host_addr, &host_addrlen, PORT);
 
-    while(running)
+    if(bind(serverfd, (struct sockaddr *)&host_addr, host_addrlen) != 0)
     {
-        int cfd = accept(ctx.fd, NULL, 0);
-        if(cfd < 0)
-        {
-            goto cleanup;
-        }
+        perror("Bind");
+        close(serverfd);
+        return EXIT_FAILURE;
     }
 
-    retval = EXIT_SUCCESS;
-cleanup:
-    cleanup(&ctx);
-exit:
-    exit(retval);
+    if(listen(serverfd, SOMAXCONN) != 0)
+    {
+        perror("Listen");
+        close(serverfd);
+        return EXIT_FAILURE;
+    }
+
+    printf("Server listening on port: %d\n", PORT);
+
+    setup_signal_handler();
+    while(!exit_flag)
+    {
+        int clientfd;
+
+        clientfd = accept(serverfd, (struct sockaddr *)&host_addr, &host_addrlen);
+        if(clientfd < 0)
+        {
+            if(exit_flag)
+            {
+                printf("Flag has been changed closing..\n");
+                break;
+            }
+            perror("Client File Descriptor");
+            continue;
+        }
+
+        if(pthread_create(&listenerThread, NULL, handle_request, (void *)&clientfd) != 0)
+        {
+            fprintf(stderr, "Error: Could not create thread");
+        }
+        printf("Handling request..\n");
+        pthread_join(listenerThread, NULL);
+
+        close(clientfd);
+    }
+    close(serverfd);
+    return 0;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-
-/* Write to stdout a shutdown message and set exit_flag to end while loop in main */
-static void sig_handler(int sig)
-{
-    const char *message = "\nSIGINT received. Server shutting down.\n";
-    write(1, message, strlen(message));
-    running = 0;
-}
-
-#pragma GCC diagnostic pop
-
-/* Pairs SIGINT with sig_handler */
-static void setup_sig_handler(void)
+static void setup_signal_handler(void)
 {
     struct sigaction sa;
 
     memset(&sa, 0, sizeof(sa));
+
 #if defined(__clang__)
     #pragma clang diagnostic push
     #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
 #endif
-    sa.sa_handler = sig_handler;
+    sa.sa_handler = sigint_handler;
 #if defined(__clang__)
     #pragma clang diagnostic pop
 #endif
+
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
 
@@ -82,20 +102,14 @@ static void setup_sig_handler(void)
     }
 }
 
-static void setup(ctx_t *c, char s[INET_ADDRSTRLEN])
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
+static void sigint_handler(int signum)
 {
-    memset(c, 0, sizeof(ctx_t));
-    find_address(&(c->addr.sin_addr.s_addr), s);
-    c->addr_len = sizeof(struct sockaddr_in);
-    c->fd = setup_server(&(c->addr));
-    find_port(&(c->addr), s);
-    setup_sig_handler();
+    const char *shutdown_message = "\nServer shutting down...\n";
+    exit_flag                    = 1;
+    write(1, shutdown_message, strlen(shutdown_message) + 1);
 }
 
-static void cleanup(const ctx_t *c)
-{
-    if (c->fd)
-    {
-        close(c->fd);
-    }
-}
+#pragma GCC diagnostic pop
