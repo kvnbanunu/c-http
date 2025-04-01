@@ -11,17 +11,5 @@ struct req_info
 };
 
 void       *handle_request(void *arg);
-void        construct_response(int clientfd, const char *status, const char *body, const char *mime, size_t body_len);
-void        parse_request(struct req_info *info, char *buffer);
-void        trim_protocol(char *protocol);
-const char *get_mime_type(const char *file_path);
-int         file_verification(const char *file_path);
-int         open_requested_file(int *fd, const char *path);
-int         file_readable(const char *file_path);
-int         file_exists(const char *file_path);
-size_t      find_content_length(int fd);
-void        construct_get_response404(int clientfd);
-void        construct_get_response200(int clientfd, const char *mime, int filefd);
-void        linktest(void);
 
 #endif    // !HANDLER_H

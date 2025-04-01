@@ -1,1 +1,1 @@
-main src/main.c src/handler.c include/handler.h src/setup.c include/setup.h
+main src/main.c src/handler.c src/setup.c pthread
