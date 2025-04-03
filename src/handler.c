@@ -1,75 +1,39 @@
 #include "../include/handler.h"
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <time.h>
+#include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
+#include <ndbm.h>
 
-#define BUFFER_SIZE 256
+#define TIME_SIZE 128
+#define STATUS_OK 200
+#define STATUS_NOT_FOUND 404
+#define HEADER_SIZE_FAIL 256
+#define HEADER_SIZE_SUCCESS 512
+#define HEX 16
 
-static void construct_response(int clientfd, const char *status, const char *body, const char *mime, size_t body_len)
+const char *handler_version = "1.0.0"; // increment when updating
+
+static char* get_mime_type(const char *path)
 {
-    char response[BUFFER_SIZE];
+    const char *ext = strrchr(path, '.');
 
-    snprintf(response,
-             sizeof(response),
-             "HTTP/1.0 %s\r\n"
-             "Content-Type: %s\r\n"
-             "Content-Length: %zu\r\n\r\n",
-             status,
-             mime,
-             body_len);
-
-    printf("%s", response);
-    write(clientfd, response, strlen(response));
-
-    if(body != NULL)
-    {
-        write(clientfd, body, body_len);
-    }
-}
-
-static void trim_protocol(char *protocol)
-{
-    for(int i = 0; protocol[i] != '\0'; i++)
-    {
-        if(protocol[i] == '\r' || protocol[i] == '\n')
-        {
-            protocol[i] = '\0';
-            break;
-        }
-    }
-}
-
-static void parse_request(struct req_info *info, char *buffer)
-{
-    char *save;
-
-    info->method   = strtok_r(buffer, " ", &save);
-    info->path     = strtok_r(NULL, " ", &save);
-    info->protocol = strtok_r(NULL, " ", &save);
-    if(info->protocol)
-    {
-        trim_protocol(info->protocol);
-    }
-}
-
-static const char *get_mime_type(const char *file_path)
-{
-    const char *ext = strrchr(file_path, '.');
-    if(ext == NULL)
+    if(!ext)
     {
         return "application/octet-stream";
     }
 
-    if(strcmp(ext, ".html") == 0)
+    if(strcmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0)
     {
         return "text/html";
+    }
+
+    if(strcmp(ext, ".txt") == 0)
+    {
+        return "text/plain";
     }
 
     if(strcmp(ext, ".css") == 0)
@@ -97,192 +61,326 @@ static const char *get_mime_type(const char *file_path)
         return "image/gif";
     }
 
+    if(strcmp(ext, ".ico") == 0)
+    {
+        return "image/x-icon";
+    }
+
+    if(strcmp(ext, ".pdf") == 0)
+    {
+        return "application/pdf";
+    }
+
+    if(strcmp(ext, ".xml") == 0)
+    {
+        return "application/xml";
+    }
+
+    if(strcmp(ext, ".json") == 0)
+    {
+        return "application/json";
+    }
+    
     return "application/octet-stream";
 }
 
-static int file_readable(const char *file_path)
+static char* http_date()
 {
+    time_t now = time(NULL);
+    struct tm *tm = gmtime(&now);
+    char *buf = malloc(TIME_SIZE);
+    if(!buf)
+    {
+        return NULL;
+    }
+    strftime(buf, TIME_SIZE, "%a, %d %b %Y %H:%M:%S GMT", tm);
+    return buf;
+}
+
+static response_t* handle_file_request(const request_t *req, const char *doc_root, int head_only)
+{
+    response_t *res;
     struct stat file_stat;
+    int fd;
+    const char *mime_type = NULL;
+    char *uri;
+    char *query_str;
+    char *file_path;
+    char *date;
+    char *headers;
 
-    if(stat(file_path, &file_stat) == 0 && (file_stat.st_mode & S_IRUSR))
+    res = (response_t *)malloc(sizeof(response_t));
+    if(!res)
     {
-        return 0;
+        return NULL;
+    }
+    memset(res, 0, sizeof(response_t));
+    
+    // sanitize URI to prevent directory traversal
+    uri = strdup(req->uri);
+    if(!uri)
+    {
+        free(res);
+        return NULL;
     }
 
-    return -1;
-}
-
-static int file_exists(const char *file_path)
-{
-    struct stat file_stat;
-
-    if(stat(file_path, &file_stat) == 0)
+    // remove query string if present
+    query_str = strchr(uri, '?');
+    if(query_str)
     {
-        return 0;
+        *query_str = '\0';
     }
 
-    return -1;
-}
-
-static int file_verification(const char *file_path)
-{
-    int  retval;
-    int  a;
-    int  b;
-    char file_path_formatted[BUFFER_SIZE];
-
-    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", file_path);
-
-    a      = file_readable(file_path_formatted);
-    b      = file_exists(file_path_formatted);
-    retval = -1;
-
-    printf("%s\n", file_path_formatted);
-    printf("readable: %d exists: %d\n", a, b);
-
-    if(file_readable(file_path_formatted) == 0 && file_exists(file_path_formatted) == 0)
+    // Default to index.html for root
+    if(strcmp(uri, "/") == 0)
     {
-        retval = 0;
+        free(uri);
+        uri = strdup("/index.html");
+        if(!uri)
+        {
+            free(res);
+            return NULL;
+        }
     }
 
-    return retval;
-}
-
-static int open_requested_file(int *fd, const char *path)
-{
-    char file_path_formatted[BUFFER_SIZE];
-
-    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
-
-    *fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
-    if(*fd < 0)
+    // Construct file path
+    file_path = (char *)malloc(strlen(doc_root) + strlen(uri) + 1);
+    if(!file_path)
     {
-        perror("open");
-        return -1;
+        free(uri);
+        free(res);
+        return NULL;
     }
-    return 0;
-}
+    sprintf(file_path, "%s%s", doc_root, uri);
 
-static size_t find_content_length(int fd)
-{
-    struct stat fileStat;
-
-    if(fstat(fd, &fileStat) == 0)
+    fd = open(file_path, O_RDONLY);
+    if(fd < 0)
     {
-        return (size_t)fileStat.st_size;
+        res->status_code = STATUS_NOT_FOUND;
+        res->status_text = strdup("Not Found");
+
+        const char *not_found = "<html><head><title>404 Not Found</title></head>"
+                                "<body><h1>404 Not Found</h1><p>The requested resource was not found on this server.</p>"
+                                "<hr><p>C-HTTP Server</p></body></html>";
+        res->body = strdup(not_found);
+        res->body_len = strlen(not_found);
+
+        date = http_date();
+        headers = (char *)malloc(HEADER_SIZE_FAIL);
+        sprintf(headers, "Content-Type: text/html\r\nDate: %s\r\nServer: C HTTP Server\r\n", date);
+        res->headers = headers;
+
+        free(date);
+        free(uri);
+        free(file_path);
+        return res;
     }
-    return (size_t)-1;
-}
 
-/* test print
-static void linktest(void)
-{
-    printf("link success\n");
-}
-*/
-
-static void construct_get_response404(int clientfd)
-{
-    const char body[] = "<html><body><h1>404 Not Found</h1></body></html>";
-    construct_response(clientfd, "404 Not Found", body, "text/html", strlen(body));
-}
-
-static void construct_get_response200(int clientfd, const char *mime, int filefd)
-{
-    size_t  fileSize;
-    char   *buffer;
-    ssize_t bytesread;
-
-    fileSize = find_content_length(filefd);
-
-    buffer = (char *)malloc(sizeof(char) * fileSize);
-
-    bytesread = read(filefd, buffer, fileSize);
-
-    if(bytesread < 0)
+    // get file info
+    if(fstat(fd, &file_stat) < 0)
     {
-        construct_get_response404(clientfd);
-        free(buffer);
+        close(fd);
+        free(uri);
+        free(file_path);
+        free(res);
+        return NULL;
+    }
+
+    res->status_code = STATUS_OK;
+    res->status_text = strdup("OK");
+    date = http_date();
+    
+    mime_type = get_mime_type(file_path);
+    headers = (char *)malloc(HEADER_SIZE_SUCCESS);
+    sprintf(headers, "Content-Type: %s\r\nDate: %s\r\nServer: C-HTTP Server\r\nContent-Length: %ld\r\n", mime_type, date, file_stat.st_size);
+    res->headers = headers;
+    
+    free(date);
+
+    // HEAD requests
+    if(head_only)
+    {
+        res->body = NULL;
+        res->body_len = 0;
     }
     else
     {
-        construct_response(clientfd, "200 OK", buffer, mime, fileSize);
-        free(buffer);
-    }
-}
-
-void *handle_request(void *arg)
-{
-    int             clientfd;
-    int             requestedfd;
-    struct req_info info;
-    char            buffer[BUFFER_SIZE];
-    ssize_t         valread;
-
-    clientfd = *(int *)arg;
-    valread  = read(clientfd, buffer, BUFFER_SIZE);
-    if(valread < 0)
-    {
-        // handle reading error
-        perror("read");
-        pthread_exit(NULL);
-    }
-
-    // parse
-    parse_request(&info, buffer);
-
-    // check for get, head, post
-    if(strcmp("GET", info.method) == 0)
-    {
-        // size_t      content_length;
-        const char *mime;
-
-        printf("%s\n", info.path);
-        // error handle if path is not real and stuff
-        if(file_verification(info.path) == -1)
+        ssize_t bytes_read;
+        res->body = (char *)malloc(file_stat.st_size);
+        if(!res->body)
         {
-            // send 404 error back to client
-            construct_get_response404(clientfd);
+            close(fd);
+            free(uri);
+            free(file_path);
+            free(res->status_text);
+            free(res->headers);
+            free(res);
             return NULL;
         }
-
-        printf("opening requested file..\n");
-        // handle
-        if(open_requested_file(&requestedfd, info.path) == -1)
+        
+        bytes_read = read(fd, res->body, file_stat.st_size);
+        if(bytes_read != file_stat.st_size)
         {
-            fprintf(stderr, "Failed to open requested file");
-            pthread_exit(NULL);
+            close(fd);
+            free(uri);
+            free(file_path);
+            free(res->status_text);
+            free(res->headers);
+            free(res->body);
+            free(res);
+            return NULL;
         }
-
-        mime = get_mime_type(info.path);
-        // content_length = find_content_length(clientfd);
-        // construct_response(clientfd, "200 OK", buffer, mime, content_length);
-        construct_get_response200(clientfd, mime, requestedfd);
+        res->body_len = file_stat.st_size;
     }
+    close(fd);
+    free(uri);
+    free(file_path);
+    return res;
+}
 
-    else if(strcmp("HEAD", info.method) == 0)
+static char* url_decode(const char *str)
+{
+    char *decoded;
+    char *p;
+    if(str == NULL)
     {
-        // error handle if path is not real and stuff
-        if(file_verification(info.path) == -1)
-        {
-            // send 404 back to client
-            construct_response(clientfd, "404", NULL, "text/html", 0);
-            exit(EXIT_FAILURE);
-        }
-
-        // handle head
-        construct_response(clientfd, "200 OK", NULL, "text/html", 0);
+        return NULL;
+    }
+    
+    decoded = (char *)malloc(strlen(str) + 1);
+    if(decoded == NULL)
+    {
+        return NULL;
     }
 
-    // else if(strcmp("POST", info.method) == 0)
-    // {
-    //     //handle post
-    // }
+    p = decoded;
+    while(*str)
+    {
+        if(*str == '%' && str[1] && str[2]) // handle %
+        {
+            char hex[3] = { str[1], str[2], 0 };
+            *p++ = (char)strtol(hex, NULL, HEX);
+            str += 3;
+        }
+        else if(*str == '+') // handle space
+        {
+            *p++ ' ';
+            str++;
+        }
+        else
+        {
+            *p++ = *str++
+        }
+    }
+    *p = '\0';
+    return decoded;
+}
 
-    // else
-    // {
-    //     //handler error
-    // }
+int parse_post_data(const char *body, size_t body_len, char ***keys, char ***values, int *count)
+{
+    char *body_copy;
+    char *saveptr;
+    char *pair;
+    int pairs = 1;
+    int index = 0;
 
-    exit(EXIT_SUCCESS);
+    if(!body || body_len == 0)
+    {
+        *count = 0;
+        return 0;
+    }
+
+    body_copy = (char *)malloc(body_len + 1);
+    if(!body_copy)
+    {
+        return -1;
+    }
+    memcpy(body_copy, body, body_len);
+    body_copy[body_len] = '\0';
+
+    // Count the number of '&' to determine num pairs
+    for(size_t i = 0; i < body_len; i++)
+    {
+        if(body_copy[i] == '&')
+        {
+            pairs++;
+        }
+    }
+
+    *keys = (char**)malloc(pairs * sizeof(char*));
+    *values = (char**)malloc(pairs * sizeof(char*));
+    if(!*keys || !*values)
+    {
+        // prevent double free
+        if(*keys)
+        {
+            free(*keys);
+        }
+        if(*values)
+        {
+            free(*values);
+        }
+        free(body_copy);
+        return -1;
+    }
+
+    // init arr
+    for(int i = 0; i < pairs; i++)
+    {
+        (*keys)[i] = NULL;
+        (*values)[i] = NULL;
+    }
+
+    // parse each pair
+    pair = strtok_r(body_copy, "&", &saveptr);
+    while(pair && index < pairs)
+    {
+        char *eq = strchr(pair, '='); // find equal sign
+        if(eq)
+        {
+            char *key;
+            char *val;
+            *eq = '\0';
+            key = url_decode(pair);
+            val = url_decode(eq + 1);
+
+            if(!key || !val)
+            {
+                if(key)
+                {
+                    free(key);
+                }
+                if(val)
+                {
+                    free(val);
+                }
+                // clean everything
+                for(int i = 0; i < index; i++)
+                {
+                    if((*keys)[i])
+                    {
+                        free((*keys)[i]);
+                        free((*values)[i]);
+                    }
+                }
+                free(*keys);
+                free(*values);
+                free(body_copy);
+                return -1;
+            }
+            (*keys)[index] = key;
+            (*values)[index] = value;
+            index++;
+        }
+        // next pair
+        pair = strtok_r(NULL, "&", &saveptr);
+    }
+    *count = index;
+    free(body_copy);
+    return 0;
+}
+
+static response_t* handle_post_request()
+{
+
 }
