@@ -1,101 +1,142 @@
-#include "../include/handler.h"
-#include "../include/setup.h"
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <signal.h>
+#include "../include/config.h"
+#include "../include/server.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <signal.h>
 #include <unistd.h>
+#include <getopt.h>
 
-#define PORT 8080
+// Global pointer to the server context for the signal handler
+static server_context_t *server_ctx = NULL;
 
-static void setup_sig_handler(void);
-static void sig_handler(int sig);
+// Signal handler
+static void signal_handler(int signo);
+void print_usage(const char *program_name);
 
-static volatile sig_atomic_t exit_flag = 0;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-
-int main(void)
+int main(int argc, char *argv[])
 {
-    int       fd;
-    pthread_t thread;
-    int       retval = EXIT_SUCCESS;
-
-    fd = setup_server(PORT);
-    if(fd < 0)
+    int port = DEFAULT_PORT;
+    int worker_count = DEFAULT_WORKER_COUNT;
+    char *document_root = DEFAULT_DOCUMENT_ROOT;
+    char *handler_lib = DEFAULT_HANDLER_LIB;
+    char *database_path = DEFAULT_DATABASE;
+    server_context_t ctx;
+    int opt;
+    int option_index = 0;
+    int retval;
+    
+    // Parse command-line options
+    static struct option long_options[] = {
+        {"port", required_argument, 0, 'p'},
+        {"workers", required_argument, 0, 'w'},
+        {"document-root", required_argument, 0, 'd'},
+        {"handler-lib", required_argument, 0, 'l'},
+        {"database", required_argument, 0, 'b'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
+    
+    while ((opt = getopt_long(argc, argv, "p:w:d:l:b:h", long_options, &option_index)) != -1)
     {
-        perror("setup_server\n");
-        retval = EXIT_FAILURE;
-        goto done;
-    }
-
-    setup_sig_handler();
-    while(!exit_flag)
-    {
-        int clientfd;
-
-        clientfd = accept(fd, NULL, 0);
-        if(clientfd < 0)
+        switch (opt)
         {
-            if(exit_flag)
-            {
-                printf("Flag has been changed closing..\n");
+            case 'p':
+                port = atoi(optarg);
+                if (port <= 0 || port > UINT16_MAX)
+                {
+                    fprintf(stderr, "Invalid port number: %s\n", optarg);
+                    return 1;
+                }
                 break;
-            }
-            perror("Client File Descriptor");
-            continue;
+            
+            case 'w':
+                worker_count = atoi(optarg);
+                if (worker_count <= 0)
+                {
+                    fprintf(stderr, "Invalid worker count: %s\n", optarg);
+                    return 1;
+                }
+                break;
+            
+            case 'd':
+                document_root = optarg;
+                break;
+            
+            case 'l':
+                handler_lib = optarg;
+                break;
+            
+            case 'b':
+                database_path = optarg;
+                break;
+            
+            case 'h':
+                print_usage(argv[0]);
+                return 0;
+            
+            default:
+                print_usage(argv[0]);
+                return 1;
         }
-
-        if(pthread_create(&thread, NULL, handle_request, (void *)&clientfd) != 0)
-        {
-            fprintf(stderr, "Error: Could not create thread");
-        }
-        printf("Handling request..\n");
-        pthread_join(thread, NULL);
-
-        close(clientfd);
     }
-
-    close(fd);
-
-done:
-    exit(retval);
-}
-
-static void setup_sig_handler(void)
-{
+    
+    // Initialize server context
+    server_ctx = &ctx;
+    
+    // Set up signal handlers
     struct sigaction sa;
-
     memset(&sa, 0, sizeof(sa));
-
-#if defined(__clang__)
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
-#endif
-    sa.sa_handler = sig_handler;
-#if defined(__clang__)
-    #pragma clang diagnostic pop
-#endif
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    if(sigaction(SIGINT, &sa, NULL) == -1)
+    sa.sa_handler = signal_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    
+    // Ignore SIGPIPE (happens when client disconnects)
+    signal(SIGPIPE, SIG_IGN);
+    
+    // Initialize server
+    if (server_init(&ctx, port) < 0)
     {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Failed to initialize server\n");
+        return 1;
+    }
+    
+    printf("Server initialized on port %d\n", port);
+    
+    // Run server
+    retval = server_run(&ctx, worker_count, document_root, handler_lib, database_path);
+    
+    // Cleanup
+    server_cleanup(&ctx);
+    
+    return result;
+}
+
+static void signal_handler(int signo)
+{
+    if (server_ctx && (signo == SIGINT || signo == SIGTERM))
+    {
+        printf("\nReceived signal %d, shutting down...\n", signo);
+        
+        // Forward signal to server processes
+        server_handle_signal(server_ctx, signo);
+        
+        // Cleanup server resources
+        server_cleanup(server_ctx);
+        
+        exit(0);
     }
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-
-static void sig_handler(int sig)
+static void print_usage(const char *program_name)
 {
-    const char *shutdown_message = "\nServer shutting down...\n";
-    exit_flag                    = 1;
-    write(1, shutdown_message, strlen(shutdown_message) + 1);
+    printf("Usage: %s [options]\n", program_name);
+    printf("Options:\n");
+    printf("  -p, --port PORT           Port to listen on (default: %d)\n", DEFAULT_PORT);
+    printf("  -w, --workers COUNT       Number of worker processes (default: %d)\n", DEFAULT_WORKER_COUNT);
+    printf("  -d, --document-root DIR   Document root directory (default: %s)\n", DEFAULT_DOCUMENT_ROOT);
+    printf("  -l, --handler-lib FILE    Path to handler shared library (default: %s)\n", DEFAULT_HANDLER_LIB);
+    printf("  -b, --database FILE       Path to database file (default: %s)\n", DEFAULT_DATABASE);
+    printf("  -h, --help                Display this help message\n");
 }
-
-#pragma GCC diagnostic pop
