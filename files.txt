@@ -1,1 +1,1 @@
-main src/main.c src/server.c src/worker.c database.c ndbm dl
+main src/main.c src/server.c src/worker.c database.c -ndbm -dl

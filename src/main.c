@@ -13,7 +13,7 @@ static server_context_t *server_ctx = NULL;
 
 // Signal handler
 static void signal_handler(int signo);
-void print_usage(const char *program_name);
+static void print_usage(const char *program_name);
 
 int main(int argc, char *argv[])
 {
@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
     // Cleanup
     server_cleanup(&ctx);
     
-    return result;
+    return retval;
 }
 
 static void signal_handler(int signo)

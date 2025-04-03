@@ -18,17 +18,17 @@ ifeq ($(UNAME_S),Darwin)
 endif
 
 # Server source files
-SERVER_SRC = main.c server.c worker.c database.c
+SERVER_SRC = src/main.c src/server.c src/worker.c src/database.c
 SERVER_OBJ = $(SERVER_SRC:.c=.o)
 SERVER_TARGET = http_server
 
 # Handler source files
-HANDLER_SRC = handler.c
+HANDLER_SRC = src/handler.c
 HANDLER_OBJ = $(HANDLER_SRC:.c=.o)
 HANDLER_TARGET = libhandler.so
 
 # Query utility source files
-QUERY_SRC = query.c
+QUERY_SRC = src/query.c
 QUERY_OBJ = $(QUERY_SRC:.c=.o)
 QUERY_TARGET = db_query
 
