@@ -1,1 +1,3 @@
-main src/main.c src/handler.c src/setup.c pthread
+http_server src/main.c src/server.c src/database.c src/worker.c src/http_handler.c src/utils.c gdbm_compat dl
+libhandler.so src/http_handler_lib.c src/http_handler.c src/database.c src/utils.c
+db_query src/query.c src/database.c src/utils.c gdbm_compat

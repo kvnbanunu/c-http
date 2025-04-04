@@ -1,101 +1,99 @@
-#include "../include/handler.h"
-#include "../include/setup.h"
-#include <arpa/inet.h>
-#include <pthread.h>
+#include "../include/config.h"
+#include "../include/server.h"
+#include "../include/utils.h"
+#include "../include/worker.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
-#define PORT 8080
+static volatile sig_atomic_t running = 1;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-static void setup_sig_handler(void);
-static void sig_handler(int sig);
-
-static volatile sig_atomic_t exit_flag = 0;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static void signal_handler(int sig);
+static void setup_signal_handler(void);
 
 int main(void)
 {
     int       fd;
-    pthread_t thread;
-    int       retval = EXIT_SUCCESS;
+    worker_t *workers;
+    int       retval = EXIT_FAILURE;
 
-    fd = setup_server(PORT);
+    setup_signal_handler();
+
+    /* Initialize server */
+    fd = init_server();
     if(fd < 0)
     {
-        perror("setup_server\n");
-        retval = EXIT_FAILURE;
+        fprintf(stderr, "Failed to initialize server\n");
         goto done;
     }
 
-    setup_sig_handler();
-    while(!exit_flag)
+    // Allocate workers array
+    workers = (worker_t *)calloc((size_t)WORKER_COUNT, sizeof(worker_t));
+    if(!workers)
     {
-        int clientfd;
-
-        clientfd = accept(fd, NULL, 0);
-        if(clientfd < 0)
-        {
-            if(exit_flag)
-            {
-                printf("Flag has been changed closing..\n");
-                break;
-            }
-            perror("Client File Descriptor");
-            continue;
-        }
-
-        if(pthread_create(&thread, NULL, handle_request, (void *)&clientfd) != 0)
-        {
-            fprintf(stderr, "Error: Could not create thread");
-        }
-        printf("Handling request..\n");
-        pthread_join(thread, NULL);
-
-        close(clientfd);
+        perror("main: calloc\n");
+        goto cleanup_server;
     }
 
-    close(fd);
+    // Initialize worker processes
+    if(init_workers(workers, fd) < 0)
+    {
+        fprintf(stderr, "Failed to initialize worker processes\n");
+        goto cleanup_workers;
+    }
+
+    log_message("Server started on port %d with %d workers", PORT, WORKER_COUNT);
+
+    // Monitor workers while server is running
+    while(running)
+    {
+        if(monitor_workers(workers, fd) < 0)
+        {
+            fprintf(stderr, "Failed to monitor worker processes\n");
+            goto cleanup_workers;
+        }
+        sleep(1);
+    }
+
+    log_message("Server shutting down...");
+    retval = EXIT_SUCCESS;
+
+cleanup_workers:
+    cleanup_workers(workers);
+    free(workers);
+
+cleanup_server:
+    cleanup_server(fd);
 
 done:
-    exit(retval);
-}
-
-static void setup_sig_handler(void)
-{
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof(sa));
-
-#if defined(__clang__)
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
-#endif
-    sa.sa_handler = sig_handler;
-#if defined(__clang__)
-    #pragma clang diagnostic pop
-#endif
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    if(sigaction(SIGINT, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
-    }
+    return retval;
 }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void sig_handler(int sig)
+static void signal_handler(int sig)
 {
-    const char *shutdown_message = "\nServer shutting down...\n";
-    exit_flag                    = 1;
-    write(1, shutdown_message, strlen(shutdown_message) + 1);
+    running = 0;
 }
 
 #pragma GCC diagnostic pop
+
+static void setup_signal_handler(void)
+{
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
+#endif
+    sa.sa_handler = signal_handler;
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+}
