@@ -1,1 +1,1 @@
-main src/main.c src/handler.c src/setup.c pthread
+main src/main.c src/handler.c src/setup.c pthread gdbm_compat
