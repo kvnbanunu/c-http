@@ -26,6 +26,8 @@ typedef struct
     datum_size  dsize;
 } const_datum;
 
-void       *handle_request(void *arg);
+// Function signature for shared library
+typedef void (*dyn_handle_request)(int client_fd);
+//void       *handle_request();
 
 #endif    // !HANDLER_H

@@ -8,7 +8,7 @@
  *
  * @return fd on success, -1 on failure
  */
-int server_setup(void);
+int server_init(void);
 
 /**
  * Main server loop

@@ -137,8 +137,19 @@ int server_run(int fd)
     // init workers
     if(worker_init(fd) < 0)
     {
-
+        fprintf(stderr, "server_run: Failed to initialize workers\n");
+        return -1;
     }
+
+    printf("Server running with %d workers\n", WORKER_COUNT);
+    printf("Handler library: %s\n", HANDLER_LIBRARY);
+
+    while(1)
+    {
+        sleep(1);
+    }
+
+    return 0;
 }
 
 void server_cleanup(int fd)

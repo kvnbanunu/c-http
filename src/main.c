@@ -9,7 +9,7 @@
 
 static int fd = -1;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-static void setup_main_signal_handler(void);
+static void main_signal_handler_setup(void);
 static void main_signal_handler(int sig);
 
 int main(void)
@@ -24,7 +24,7 @@ int main(void)
         exit(retval);
     }
     
-    setup_main_signal_handler();
+    main_signal_handler_setup();
 
     retval = server_run(fd);
 
@@ -35,40 +35,6 @@ int main(void)
     exit(retval);
     
 }
-
-/*
-    while(!exit_flag)
-    {
-        int clientfd;
-
-        clientfd = accept(fd, NULL, 0);
-        if(clientfd < 0)
-        {
-            if(exit_flag)
-            {
-                printf("Flag has been changed closing..\n");
-                break;
-            }
-            perror("Client File Descriptor");
-            continue;
-        }
-
-        if(pthread_create(&thread, NULL, handle_request, (void *)&clientfd) != 0)
-        {
-            fprintf(stderr, "Error: Could not create thread");
-        }
-        printf("Handling request..\n");
-        pthread_join(thread, NULL);
-
-        close(clientfd);
-    }
-
-    close(fd);
-
-done:
-    exit(retval);
-
-*/
 
 static void main_signal_handler_setup(void)
 {

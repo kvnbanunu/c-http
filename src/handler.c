@@ -1,10 +1,8 @@
 #include "../include/handler.h"
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <ndbm.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -346,22 +344,20 @@ static void tokenize_post(char *body)
     store_in_db(key, value);
 }
 
-__attribute__((noreturn)) void *handle_request(void *arg)
+void handle_request(int client_fd)
 {
-    int             clientfd;
     int             requestedfd;
     struct req_info info;
     char            buffer[BUFFER_SIZE];
     ssize_t         valread;
 
-    clientfd = *(int *)arg;
     memset(buffer, 0, sizeof(buffer));
-    valread = read(clientfd, buffer, BUFFER_SIZE);
+    valread = read(client_fd, buffer, BUFFER_SIZE);
     if(valread < 0)
     {
         // handle reading error
-        perror("read");
-        pthread_exit(NULL);
+        perror("handle_request: read\n");
+        return;
     }
 
     printf("INCOMING:\n%s\nEND BUFFER\n", buffer);
@@ -381,28 +377,28 @@ __attribute__((noreturn)) void *handle_request(void *arg)
         if(verification == -1)
         {
             // send 404 error back to client
-            construct_get_response404(clientfd);
-            pthread_exit(NULL);
+            construct_get_response404(client_fd);
+            return;
         }
 
         else if(verification == -2)
         {
             // send 404 error back to client
-            construct_get_response403(clientfd);
-            pthread_exit(NULL);
+            construct_get_response403(client_fd);
+            return;
         }
 
         // handle
         if(open_requested_file(&requestedfd, info.path) == -1)
         {
-            construct_get_response500(clientfd);
-            pthread_exit(NULL);
+            construct_get_response500(client_fd);
+            return;
         }
 
         mime = get_mime_type(info.path);
         // content_length = find_content_length(clientfd);
         // construct_response(clientfd, "200 OK", buffer, mime, content_length);
-        construct_get_response200(clientfd, mime, requestedfd);
+        construct_get_response200(client_fd, mime, requestedfd);
     }
 
     else if(strcmp("HEAD", info.method) == 0)
@@ -416,19 +412,19 @@ __attribute__((noreturn)) void *handle_request(void *arg)
         if(verification == -1)
         {
             // send 404 error back to client
-            construct_get_response404(clientfd);
-            pthread_exit(NULL);
+            construct_get_response404(client_fd);
+            return;
         }
 
         else if(verification == -2)
         {
             // send 404 error back to client
-            construct_get_response403(clientfd);
-            pthread_exit(NULL);
+            construct_get_response403(client_fd);
+            return;
         }
 
         // handle head
-        construct_response(clientfd, "200 OK", NULL, "text/html", 0);
+        construct_response(client_fd, "200 OK", NULL, "text/html", 0);
     }
 
     else if(strcmp("POST", info.method) == 0)
@@ -440,16 +436,14 @@ __attribute__((noreturn)) void *handle_request(void *arg)
         // content_len = get_content_length(buffer);
         get_body_pos(buffer, &bodyptr);
         tokenize_post(bodyptr);
-        construct_response(clientfd, "200 OK", NULL, "text/html", 0);
-        pthread_exit(NULL);
+        construct_response(client_fd, "200 OK", NULL, "text/html", 0);
+        return;
     }
 
     else
     {
         printf("NOT KNOWN\n");
         // handler error
-        construct_get_response405(clientfd);
+        construct_get_response405(client_fd);
     }
-
-    pthread_exit(NULL);
 }
