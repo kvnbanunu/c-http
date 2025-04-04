@@ -1,7 +1,5 @@
-#include "../include/handler.h"
-#include "../include/setup.h"
+#include "../include/server.h"
 #include <arpa/inet.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,28 +7,36 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define PORT 8080
+static int fd = -1;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-static void setup_sig_handler(void);
-static void sig_handler(int sig);
-
-static volatile sig_atomic_t exit_flag = 0;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static void setup_main_signal_handler(void);
+static void main_signal_handler(int sig);
 
 int main(void)
 {
-    int       fd;
-    pthread_t thread;
     int       retval = EXIT_SUCCESS;
 
-    fd = setup_server(PORT);
+    fd = server_init();
     if(fd < 0)
     {
-        perror("setup_server\n");
+        perror("main: setup_server\n");
         retval = EXIT_FAILURE;
-        goto done;
+        exit(retval);
     }
+    
+    setup_main_signal_handler();
 
-    setup_sig_handler();
+    retval = server_run(fd);
+
+    // The only way for the server to shutdown is signal, so code should never reach here
+
+    server_cleanup(fd);
+
+    exit(retval);
+    
+}
+
+/*
     while(!exit_flag)
     {
         int clientfd;
@@ -61,9 +67,10 @@ int main(void)
 
 done:
     exit(retval);
-}
 
-static void setup_sig_handler(void)
+*/
+
+static void main_signal_handler_setup(void)
 {
     struct sigaction sa;
 
@@ -73,29 +80,34 @@ static void setup_sig_handler(void)
     #pragma clang diagnostic push
     #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
 #endif
-    sa.sa_handler = sig_handler;
+    sa.sa_handler = main_signal_handler;
 #if defined(__clang__)
     #pragma clang diagnostic pop
 #endif
 
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
 
-    if(sigaction(SIGINT, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
-    }
+    // Ignore SIGPIPE (client disconnect)
+    signal(SIGPIPE, SIG_IGN);
 }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void sig_handler(int sig)
+static void main_signal_handler(int sig)
 {
-    const char *shutdown_message = "\nServer shutting down...\n";
-    exit_flag                    = 1;
-    write(1, shutdown_message, strlen(shutdown_message) + 1);
+    if(sig == SIGINT || sig == SIGTERM)
+    {
+        const char *shutdown_message = "\nSignal received, shutting down...\n";
+        write(1, shutdown_message, strlen(shutdown_message) + 1);
+
+        server_signal_handler(sig);
+
+        server_cleanup(fd);
+
+        exit(EXIT_SUCCESS);
+    }
 }
 
 #pragma GCC diagnostic pop
