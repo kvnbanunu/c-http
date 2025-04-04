@@ -27,7 +27,6 @@ typedef struct
 } const_datum;
 
 // Function signature for shared library
-typedef void (*dyn_handle_request)(int client_fd);
-// void       *handle_request();
+void handle_request(int client_fd);
 
 #endif    // !HANDLER_H

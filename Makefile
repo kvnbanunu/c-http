@@ -3,11 +3,11 @@ CFLAGS = -Wall -Wextra -g -O2 -fPIC
 
 # Server source files
 SERVER_SRC = src/main.c src/server.c src/worker.c
-SERVER_FLAGS = -ldl
+SERVER_FLAGS = -ldl -lgdbm_compat
 SERVER_TARGET = build/main
 
 HANDLER_SRC = src/handler.c
-HANDLER_FLAGS = -shared -lgdbm_compat
+HANDLER_FLAGS = -shared -lgdbm_compat -ldl
 HANDLER_TARGET = build/lib_handler.so
 
 server: format

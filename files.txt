@@ -1,1 +1,1 @@
-main src/main.c src/server.c src/worker.c dl
+main src/main.c src/server.c src/worker.c dl gdbm_compat

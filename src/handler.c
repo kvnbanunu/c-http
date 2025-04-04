@@ -14,8 +14,6 @@
 #define BUFFER_SIZE 1024
 #define FMT_BUFFER 50
 
-// #define BASE_TEN 10
-
 static void construct_response(int clientfd, const char *status, const char *body, const char *mime, size_t body_len)
 {
     char response[BUFFER_SIZE];
@@ -141,23 +139,16 @@ static int file_verification(const char *file_path)
     int  b;
     char file_path_formatted[FMT_BUFFER];
 
-    printf("VERIFYING PATH 1: %s\n", file_path);
     snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", file_path);
-    printf("VERIFYING PATH 2: %s\n", file_path);
-    printf("FORMMATED (SHOUDLd WIRKJ): %s\n", file_path_formatted);
 
     file_path = file_path_formatted;
-    printf("PASSED IN FILE PATH: %s\n", file_path);
     a      = file_readable(file_path_formatted);
     b      = file_exists(file_path_formatted);
     retval = 0;
 
-    printf("readable: %d exists: %d\n", a, b);
-
     // 404 case
     if(b != 0)
     {
-        printf("SHOULD BE 404\n");
         retval = -1;
         return retval;
     }
@@ -165,12 +156,10 @@ static int file_verification(const char *file_path)
     // 403 case
     if(a != 0)
     {
-        printf("IM BOUTTA 403\n");
         retval = -2;
         return retval;
     }
 
-    printf("VERIFICATION SUCCEEDED\n");
     return retval;
 }
 
@@ -181,7 +170,6 @@ static int open_requested_file(const char *path)    // removed fd pointer -> now
 
     snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
 
-    printf("OPENING DIR: %s\n", file_path_formatted);
     fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
     if(fd < 0)
     {
@@ -201,13 +189,6 @@ static size_t find_content_length(int fd)
     }
     return (size_t)-1;
 }
-
-/* test print
-static void linktest(void)
-{
-    printf("link success\n");
-}
-*/
 
 static void construct_get_response404(int clientfd)
 {
@@ -257,39 +238,6 @@ static void construct_get_response200(int clientfd, const char *mime, int filefd
     }
 }
 
-// static int get_content_length(char buffer[BUFFER_SIZE])
-// {
-//     const char *key = "Content-Length: ";
-//     int         keylen;
-//     char       *lenptr;
-//     char       *endptr;
-
-//     lenptr = strstr(buffer, key);
-//     keylen = (int)strlen(key);
-
-//     if(lenptr)
-//     {
-//         long length;
-
-//         lenptr += keylen;    // move past the key to the number part
-
-//         // Reset errno before the call
-//         errno = 0;
-
-//         length = strtol(lenptr, &endptr, BASE_TEN);    // base 10
-
-//         // Error checking
-//         if(errno != 0 || lenptr == endptr || length < 0 || length > INT_MAX)
-//         {
-//             return -1;
-//         }
-
-//         return (int)length;
-//     }
-
-//     return -1;
-// }
-
 static void get_body_pos(char buffer[BUFFER_SIZE], char **bodyptr)
 {
     const char *key;
@@ -314,7 +262,6 @@ static int store_string(DBM *db, const char *key, const char *value)
 
 static void store_in_db(const char *key, const char *value)
 {
-    // printf("%s, %s\n\n", key, value);
     char db_name[] = "posts_db";    // cppcheck-suppress constVariable
     DBM *db        = dbm_open(db_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -330,6 +277,7 @@ static void store_in_db(const char *key, const char *value)
         dbm_close(db);
         return;
     }
+    dbm_close(db);
 }
 
 static void tokenize_post(char *body)
@@ -341,7 +289,6 @@ static void tokenize_post(char *body)
     key   = strtok_r(body, "=", &save);
     value = strtok_r(NULL, "=", &save);
 
-    // printf("%s, %s\n\n", key, value);
     store_in_db(key, value);
 }
 
@@ -373,7 +320,6 @@ void handle_request(int client_fd)
 
         verification = file_verification(info.path);
 
-        printf("GET VERIOFICATION VALUE: %d\n", verification);
         // error handle if path is not real and stuff
         if(verification == -1)
         {
@@ -409,7 +355,6 @@ void handle_request(int client_fd)
 
         verification = file_verification(info.path);
 
-        printf("HEAD VERIOFICATION VALUE: %d\n", verification);
         // error handle if path is not real and stuff
         if(verification == -1)
         {
@@ -444,7 +389,6 @@ void handle_request(int client_fd)
 
     else
     {
-        printf("NOT KNOWN\n");
         // handler error
         construct_get_response405(client_fd);
     }

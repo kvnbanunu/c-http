@@ -6,11 +6,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
-#define PREFIX "192.168"
 
 static int server_socket(void)
 {
@@ -31,51 +28,11 @@ static int server_socket(void)
     return fd;
 }
 
-static int find_address(in_addr_t *address, char *address_str)
-{
-    struct ifaddrs       *ifaddr;
-    const struct ifaddrs *ifa;
-
-    if(getifaddrs(&ifaddr) == -1)
-    {
-        perror("find_address: getifaddrs\n");
-        return -1;
-    }
-
-    for(ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-    {
-        if(ifa->ifa_addr == NULL)
-        {
-            continue;
-        }
-        if(ifa->ifa_addr->sa_family == AF_INET)
-        {
-            if(getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), address_str, INET_ADDRSTRLEN, NULL, 0, NI_NUMERICHOST) != 0)
-            {
-                perror("find_address: getnameinfo\n");
-                continue;
-            }
-            if(strncmp(address_str, PREFIX, strlen(PREFIX)) == 0)
-            {
-                inet_pton(AF_INET, address_str, address);
-                break;
-            }
-        }
-    }
-    if(ifa == NULL)
-    {
-        freeifaddrs(ifaddr);
-        perror("find_address: no address\n");
-        return -1;
-    }
-    freeifaddrs(ifaddr);
-    return 0;
-}
-
 static socklen_t server_addr(struct sockaddr_in *addr)
 {
-    addr->sin_family = AF_INET;
-    addr->sin_port   = htons((in_port_t)PORT);
+    addr->sin_family      = AF_INET;
+    addr->sin_addr.s_addr = INADDR_ANY;
+    addr->sin_port        = htons((in_port_t)PORT);
     return sizeof(*addr);
 }
 
@@ -106,17 +63,10 @@ int server_init(void)
 {
     struct sockaddr_in addr;
     socklen_t          addr_len;
-    char               address_str[INET_ADDRSTRLEN];
 
     int fd = server_socket();
     if(fd < 0)
     {
-        return -1;
-    }
-    if(find_address(&addr.sin_addr.s_addr, address_str) != 0)
-    {
-        perror("server_init: find_address\n");
-        close(fd);
         return -1;
     }
     addr_len = server_addr(&addr);
@@ -128,7 +78,7 @@ int server_init(void)
     {
         return -1;
     }
-    printf("Server listening on %s : %d\n", address_str, PORT);
+    printf("Server listening on port: %d\n", PORT);
     return fd;
 }
 
