@@ -174,20 +174,21 @@ static int file_verification(const char *file_path)
     return retval;
 }
 
-static int open_requested_file(int *fd, const char *path)
+static int open_requested_file(const char *path) // removed fd pointer -> now return fd
 {
+    int fd;
     char file_path_formatted[FMT_BUFFER];
 
     snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
 
     printf("OPENING DIR: %s\n", file_path_formatted);
-    *fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
-    if(*fd < 0)
+    fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
+    if(fd < 0)
     {
         perror("open");
         return -1;
     }
-    return 0;
+    return fd;
 }
 
 static size_t find_content_length(int fd)
@@ -346,7 +347,6 @@ static void tokenize_post(char *body)
 
 void handle_request(int client_fd)
 {
-    int             requestedfd;
     struct req_info info;
     char            buffer[BUFFER_SIZE];
     ssize_t         valread;
@@ -368,6 +368,7 @@ void handle_request(int client_fd)
     {
         // size_t      content_length;
         const char *mime;
+        int requested_fd;
         int         verification;
 
         verification = file_verification(info.path);
@@ -389,7 +390,8 @@ void handle_request(int client_fd)
         }
 
         // handle
-        if(open_requested_file(&requestedfd, info.path) == -1)
+        requested_fd = open_requested_file(info.path);
+        if(requestedfd < 0)
         {
             construct_get_response500(client_fd);
             return;

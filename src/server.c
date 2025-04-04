@@ -1,6 +1,6 @@
 #include "../include/server.h"
-#include "../include/worker.h"
 #include "../include/config.h"
+#include "../include/worker.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netdb.h>
@@ -14,7 +14,7 @@
 
 static int server_socket(void)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);    // NOLINT(android-cloexec-socket)
+    int fd  = socket(AF_INET, SOCK_STREAM, 0);    // NOLINT(android-cloexec-socket)
     int opt = 1;
     if(fd < 0)
     {
@@ -149,7 +149,7 @@ int server_run(int fd)
         sleep(1);
     }
 
-    return 0;
+    // no return should not reach here
 }
 
 void server_cleanup(int fd)

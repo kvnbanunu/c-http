@@ -1,7 +1,8 @@
-#include "../include/handler.h"
 #include "../include/worker.h"
 #include "../include/config.h"
+#include "../include/handler.h"
 #include <arpa/inet.h>
+#include <dlfcn.h>    // dynlib
 #include <errno.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -9,13 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <time.h>
-#include <unistd.h> // fork
 #include <sys/types.h>
-#include <sys/wait.h> // waitpid
-#include <dlfcn.h> // dynlib
+#include <sys/wait.h>    // waitpid
+#include <time.h>
+#include <unistd.h>    // fork
 
-static worker_context_t w_ctx; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static worker_context_t w_ctx;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 static void worker_inner_signal_handler(int sig)
 {
@@ -41,13 +41,12 @@ static void setup_worker_inner_signal_handler(void)
 
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
-
 }
 
-static void worker_process(int worker_id)
+_Noreturn static void worker_process(int worker_id)
 {
     struct stat lib_stat;
-    time_t lib_mtime = 0;
+    time_t      lib_mtime = 0;
     setup_worker_inner_signal_handler();
 
     printf("Worker %d (PID %d) started\n", worker_id, getpid());
@@ -60,18 +59,18 @@ static void worker_process(int worker_id)
     while(!w_ctx.exit_flag)
     {
         struct sockaddr_in client_addr;
-        socklen_t client_addr_len = sizeof(client_addr);
-        fd_set read_fds; // using select to wait for connections with timeout
-        struct timeval timeout;
-        int select_result;
-        int client_fd;
-        char client_ip[INET_ADDRSTRLEN];
-        void *handler_lib = NULL;
+        socklen_t          client_addr_len = sizeof(client_addr);
+        fd_set             read_fds;    // using select to wait for connections with timeout
+        struct timeval     timeout;
+        int                select_result;
+        int                client_fd;
+        char               client_ip[INET_ADDRSTRLEN];
+        void              *handler_lib = NULL;
         dyn_handle_request handler_func;
-        
+
         FD_ZERO(&read_fds);
         FD_SET(w_ctx.fd, &read_fds);
-        timeout.tv_sec = 1; // 1s timeout to check exit flag
+        timeout.tv_sec  = 1;    // 1s timeout to check exit flag
         timeout.tv_usec = 0;
 
         select_result = select(w_ctx.fd + 1, &read_fds, NULL, NULL, &timeout);
@@ -90,7 +89,7 @@ static void worker_process(int worker_id)
         {
             if(errno == EINTR)
             {
-                continue; // interrupt sig, try again
+                continue;    // interrupt sig, try again
             }
             perror("worker_process: accept\n");
             continue;
@@ -119,7 +118,10 @@ static void worker_process(int worker_id)
         }
 
         // link handler func
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
         handler_func = (dyn_handle_request)dlsym(handler_lib, "handle_request");
+#pragma GCC diagnostic pop
         if(!handler_func)
         {
             fprintf(stderr, "Worker %d: Failed to resolve handler function: %s\n", worker_id, dlerror());
@@ -131,7 +133,7 @@ static void worker_process(int worker_id)
         handler_func(client_fd);
 
         printf("Worker %d: processed client request\n", worker_id);
-        
+
         dlclose(handler_lib);
         close(client_fd);
     }
@@ -142,12 +144,12 @@ static void worker_process(int worker_id)
 }
 
 // listen for signals from children
-static void *worker_monitor()
+static void *worker_monitor(void)
 {
     while(1)
     {
         // wait for child process to terminate
-        int status;
+        int   status;
         pid_t pid = waitpid(-1, &status, WNOHANG);
 
         if(pid > 0)
@@ -160,18 +162,18 @@ static void *worker_monitor()
                     pid_t new_pid;
                     printf("Worker %d (PID %d) terminated, restarting...\n", i, pid);
 
-                    //restart worker process
+                    // restart worker process
                     new_pid = fork();
-                    if(new_pid == 0) // child
+                    if(new_pid == 0)    // child
                     {
                         worker_process(i);
-                        exit(0);
+                        // noreturn
                     }
-                    else if(new_pid > 0) // parent
+                    else if(new_pid > 0)    // parent
                     {
                         w_ctx.pids[i] = new_pid;
                     }
-                    else // failed
+                    else    // failed
                     {
                         perror("worker_monitor: fork\n");
                     }
@@ -179,11 +181,14 @@ static void *worker_monitor()
                 }
             }
         }
-        else if(pid == 0 || (pid < 0 && errno == ECHILD)) // no children terminated, sleep
+        // cppcheck-suppress knownConditionTrueFalse
+        else if(pid == 0 || (pid < 0 && errno == ECHILD))
         {
-            usleep(WORKER_SLEEP);
+            // no children terminated, sleep
+            struct timespec t = {0, WORKER_SLEEP};
+            nanosleep(&t, NULL);
         }
-        else // waitpid failed
+        else    // waitpid failed
         {
             perror("worker_monitor: waitpid\n");
             break;
@@ -194,9 +199,9 @@ static void *worker_monitor()
 
 int worker_init(int fd)
 {
-    w_ctx.fd = fd;
+    w_ctx.fd        = fd;
     w_ctx.exit_flag = 0;
-    w_ctx.pids = (pid_t *)malloc(WORKER_COUNT * sizeof(pid_t));
+    w_ctx.pids      = (pid_t *)malloc(WORKER_COUNT * sizeof(pid_t));
     if(!w_ctx.pids)
     {
         perror("worker_init: malloc\n");
@@ -212,15 +217,13 @@ int worker_init(int fd)
             perror("worker_init: fork\n");
             return -1;
         }
-        else if(pid == 0) // child
+        if(pid == 0)    // child
         {
             worker_process(i);
-            exit(0); // should not reach here
+            // no return
         }
-        else // parent
-        {
-            w_ctx.pids[i] = pid;
-        }
+        // parent
+        w_ctx.pids[i] = pid;
     }
 
     worker_monitor();
@@ -228,7 +231,7 @@ int worker_init(int fd)
     return 0;
 }
 
-void worker_cleanup()
+void worker_cleanup(void)
 {
     time_t start;
     printf("Cleaning up workers...\n");
@@ -242,16 +245,17 @@ void worker_cleanup()
         }
     }
 
-    start = time(NULL); // current time
+    start = time(NULL);    // current time
     while(time(NULL) - start < WORKER_SIGTERM_TIMEOUT)
     {
-        int all_terminated = 1;
+        int             all_terminated = 1;
+        struct timespec t              = {0, WORKER_SLEEP};
 
         for(int i = 0; i < WORKER_COUNT; i++)
         {
             if(w_ctx.pids[i] > 0)
             {
-                int status;
+                int   status;
                 pid_t result = waitpid(w_ctx.pids[i], &status, WNOHANG);
 
                 if(result == w_ctx.pids[i])
@@ -265,12 +269,13 @@ void worker_cleanup()
                 }
             }
         }
-        
+
         if(all_terminated)
         {
             break;
         }
-        usleep(WORKER_SLEEP);
+
+        nanosleep(&t, NULL);
     }
 
     // force kill remaining
@@ -299,4 +304,3 @@ void worker_signal_handler(int sig)
         }
     }
 }
-

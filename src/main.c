@@ -14,7 +14,7 @@ static void main_signal_handler(int sig);
 
 int main(void)
 {
-    int       retval = EXIT_SUCCESS;
+    int retval = EXIT_SUCCESS;
 
     fd = server_init();
     if(fd < 0)
@@ -23,7 +23,7 @@ int main(void)
         retval = EXIT_FAILURE;
         exit(retval);
     }
-    
+
     main_signal_handler_setup();
 
     retval = server_run(fd);
@@ -33,7 +33,6 @@ int main(void)
     server_cleanup(fd);
 
     exit(retval);
-    
 }
 
 static void main_signal_handler_setup(void)

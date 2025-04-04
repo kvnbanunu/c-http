@@ -16,7 +16,7 @@ server: format
 
 lib: format
 	@mkdir -p build
-	@$(CC) $(CFLAGS) $(HANDLER_SRC) $(HANDLER_FLAGS) -o $(HANDLER_TARGET)
+	@$(CC) -fPIC $(HANDLER_SRC) $(HANDLER_FLAGS) -o $(HANDLER_TARGET)
 
 debug: format
 	@mkdir -p debug/

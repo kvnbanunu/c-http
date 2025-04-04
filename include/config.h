@@ -6,6 +6,6 @@
 #define HANDLER_LIBRARY "./lib_handler.so"
 
 #define WORKER_SIGTERM_TIMEOUT 5
-#define WORKER_SLEEP 100000 // 100ms
+#define WORKER_SLEEP 100000000    // 100ms in nanosecs
 
-#endif // CONFIG_H
+#endif    // CONFIG_H
