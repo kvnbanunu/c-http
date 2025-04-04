@@ -15,13 +15,16 @@
 #include <time.h>
 #include <unistd.h>    // fork
 
-static worker_context_t w_ctx;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+// deconstructed the worker_context into these, might revert
+static int                   server_fd   = -1;      // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static pid_t                *worker_pids = NULL;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static volatile sig_atomic_t exit_flag   = 0;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 static void worker_inner_signal_handler(int sig)
 {
     if(sig == SIGTERM || sig == SIGINT)
     {
-        w_ctx.exit_flag = 1;
+        exit_flag = 1;
     }
 }
 
@@ -56,7 +59,7 @@ _Noreturn static void worker_process(int worker_id)
         lib_mtime = lib_stat.st_mtime;
     }
 
-    while(!w_ctx.exit_flag)
+    while(!exit_flag)
     {
         struct sockaddr_in client_addr;
         socklen_t          client_addr_len = sizeof(client_addr);
@@ -69,11 +72,11 @@ _Noreturn static void worker_process(int worker_id)
         dyn_handle_request handler_func;
 
         FD_ZERO(&read_fds);
-        FD_SET(w_ctx.fd, &read_fds);
+        FD_SET(server_fd, &read_fds);
         timeout.tv_sec  = 1;    // 1s timeout to check exit flag
         timeout.tv_usec = 0;
 
-        select_result = select(w_ctx.fd + 1, &read_fds, NULL, NULL, &timeout);
+        select_result = select(server_fd + 1, &read_fds, NULL, NULL, &timeout);
 
         if(select_result <= 0)
         {
@@ -84,7 +87,7 @@ _Noreturn static void worker_process(int worker_id)
             continue;
         }
 
-        client_fd = accept(w_ctx.fd, (struct sockaddr *)&client_addr, &client_addr_len);
+        client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
         if(client_fd < 0)
         {
             if(errno == EINTR)
@@ -157,7 +160,7 @@ static void *worker_monitor(void)
             // find which worker terminated
             for(int i = 0; i < WORKER_COUNT; i++)
             {
-                if(w_ctx.pids[i] == pid)
+                if(worker_pids[i] == pid)
                 {
                     pid_t new_pid;
                     printf("Worker %d (PID %d) terminated, restarting...\n", i, pid);
@@ -171,7 +174,7 @@ static void *worker_monitor(void)
                     }
                     else if(new_pid > 0)    // parent
                     {
-                        w_ctx.pids[i] = new_pid;
+                        worker_pids[i] = new_pid;
                     }
                     else    // failed
                     {
@@ -199,10 +202,9 @@ static void *worker_monitor(void)
 
 int worker_init(int fd)
 {
-    w_ctx.fd        = fd;
-    w_ctx.exit_flag = 0;
-    w_ctx.pids      = (pid_t *)malloc(WORKER_COUNT * sizeof(pid_t));
-    if(!w_ctx.pids)
+    server_fd   = fd;
+    worker_pids = (pid_t *)malloc(WORKER_COUNT * sizeof(pid_t));
+    if(!worker_pids)
     {
         perror("worker_init: malloc\n");
         return -1;
@@ -223,7 +225,7 @@ int worker_init(int fd)
             // no return
         }
         // parent
-        w_ctx.pids[i] = pid;
+        worker_pids[i] = pid;
     }
 
     worker_monitor();
@@ -238,10 +240,10 @@ void worker_cleanup(void)
 
     for(int i = 0; i < WORKER_COUNT; i++)
     {
-        if(w_ctx.pids[i] > 0)
+        if(worker_pids[i] > 0)
         {
-            printf("Sending SIGTERM to worker %d (PID %d)\n", i, w_ctx.pids[i]);
-            kill(w_ctx.pids[i], SIGTERM);
+            printf("Sending SIGTERM to worker %d (PID %d)\n", i, worker_pids[i]);
+            kill(worker_pids[i], SIGTERM);
         }
     }
 
@@ -253,15 +255,15 @@ void worker_cleanup(void)
 
         for(int i = 0; i < WORKER_COUNT; i++)
         {
-            if(w_ctx.pids[i] > 0)
+            if(worker_pids[i] > 0)
             {
                 int   status;
-                pid_t result = waitpid(w_ctx.pids[i], &status, WNOHANG);
+                pid_t result = waitpid(worker_pids[i], &status, WNOHANG);
 
-                if(result == w_ctx.pids[i])
+                if(result == worker_pids[i])
                 {
-                    printf("Worker %d (PID %d) terminated\n", i, w_ctx.pids[i]);
-                    w_ctx.pids[i] = -1;
+                    printf("Worker %d (PID %d) terminated\n", i, worker_pids[i]);
+                    worker_pids[i] = -1;
                 }
                 else if(result == 0)
                 {
@@ -281,16 +283,16 @@ void worker_cleanup(void)
     // force kill remaining
     for(int i = 0; i < WORKER_COUNT; i++)
     {
-        if(w_ctx.pids[i] > 0)
+        if(worker_pids[i] > 0)
         {
-            printf("Force killing worker %d (PID %d)\n", i, w_ctx.pids[i]);
-            kill(w_ctx.pids[i], SIGKILL);
-            waitpid(w_ctx.pids[i], NULL, 0);
+            printf("Force killing worker %d (PID %d)\n", i, worker_pids[i]);
+            kill(worker_pids[i], SIGKILL);
+            waitpid(worker_pids[i], NULL, 0);
         }
     }
 
-    free(w_ctx.pids);
-    w_ctx.pids = NULL;
+    free(worker_pids);
+    worker_pids = NULL;
 }
 
 void worker_signal_handler(int sig)
@@ -298,9 +300,9 @@ void worker_signal_handler(int sig)
     // forward signal to worker processes
     for(int i = 0; i < WORKER_COUNT; i++)
     {
-        if(w_ctx.pids[i] > 0)
+        if(worker_pids[i] > 0)
         {
-            kill(w_ctx.pids[i], sig);
+            kill(worker_pids[i], sig);
         }
     }
 }

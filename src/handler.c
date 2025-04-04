@@ -174,9 +174,9 @@ static int file_verification(const char *file_path)
     return retval;
 }
 
-static int open_requested_file(const char *path) // removed fd pointer -> now return fd
+static int open_requested_file(const char *path)    // removed fd pointer -> now return fd
 {
-    int fd;
+    int  fd;
     char file_path_formatted[FMT_BUFFER];
 
     snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
@@ -368,7 +368,7 @@ void handle_request(int client_fd)
     {
         // size_t      content_length;
         const char *mime;
-        int requested_fd;
+        int         requested_fd;
         int         verification;
 
         verification = file_verification(info.path);
@@ -391,7 +391,7 @@ void handle_request(int client_fd)
 
         // handle
         requested_fd = open_requested_file(info.path);
-        if(requestedfd < 0)
+        if(requested_fd < 0)
         {
             construct_get_response500(client_fd);
             return;
@@ -400,7 +400,7 @@ void handle_request(int client_fd)
         mime = get_mime_type(info.path);
         // content_length = find_content_length(clientfd);
         // construct_response(clientfd, "200 OK", buffer, mime, content_length);
-        construct_get_response200(client_fd, mime, requestedfd);
+        construct_get_response200(client_fd, mime, requested_fd);
     }
 
     else if(strcmp("HEAD", info.method) == 0)

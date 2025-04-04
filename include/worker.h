@@ -3,13 +3,6 @@
 
 #include <sys/types.h>
 
-typedef struct
-{
-    int    fd; /* global server fd */
-    pid_t *pids; /* process ids of workers */
-    int    exit_flag; /* inner exit flag (copied) */
-} worker_context_t;
-
 /**
  * Initialize worker context and start worker processes
  *
