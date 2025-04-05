@@ -13,6 +13,12 @@
 
 #define BUFFER_SIZE 1024
 #define FMT_BUFFER 50
+#define HANDLER_VERSION "5.3.4"
+
+void init_handler(void)
+{
+    printf("Initialized Handler version: %s\n", HANDLER_VERSION);
+}
 
 static void construct_response(int clientfd, const char *status, const char *body, const char *mime, size_t body_len)
 {
@@ -48,13 +54,11 @@ static void trim_protocol(char *protocol)
     }
 }
 
-static void parse_request(struct req_info *info, const char *buffer)
+static void parse_request(struct req_info *info, char *buffer)
 {
     char *save;
-    char  temp_buffer[BUFFER_SIZE];
 
-    strncpy(temp_buffer, buffer, BUFFER_SIZE);
-    info->method   = strtok_r(temp_buffer, " ", &save);
+    info->method   = strtok_r(buffer, " ", &save);
     info->path     = strtok_r(NULL, " ", &save);
     info->protocol = strtok_r(NULL, " ", &save);
     if(info->protocol)
@@ -132,16 +136,15 @@ static int file_exists(const char *file_path)
     return -1;
 }
 
-static int file_verification(const char *file_path)
+static int file_verification(char *file_path)
 {
     int  retval;
     int  a;
     int  b;
     char file_path_formatted[FMT_BUFFER];
 
-    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", file_path);
+    snprintf(file_path_formatted, FMT_BUFFER, ".%s", file_path);
 
-    file_path = file_path_formatted;
     a      = file_readable(file_path_formatted);
     b      = file_exists(file_path_formatted);
     retval = 0;
@@ -163,12 +166,12 @@ static int file_verification(const char *file_path)
     return retval;
 }
 
-static int open_requested_file(const char *path)    // removed fd pointer -> now return fd
+static int open_requested_file(char *path)    // removed fd pointer -> now return fd
 {
     int  fd;
     char file_path_formatted[FMT_BUFFER];
 
-    snprintf(file_path_formatted, sizeof(file_path_formatted), ".%s", path);
+    snprintf(file_path_formatted, FMT_BUFFER, ".%s", path);
 
     fd = open(file_path_formatted, O_RDONLY | O_CLOEXEC);
     if(fd < 0)
@@ -188,6 +191,12 @@ static size_t find_content_length(int fd)
         return (size_t)fileStat.st_size;
     }
     return (size_t)-1;
+}
+
+static void construct_get_response400(int clientfd)
+{
+    const char body[] = "<html><body><h1>400 Bad Request</h1></body></html>";
+    construct_response(clientfd, "400 Not Found", body, "text/html", strlen(body));
 }
 
 static void construct_get_response404(int clientfd)
@@ -280,7 +289,7 @@ static void store_in_db(const char *key, const char *value)
     dbm_close(db);
 }
 
-static void tokenize_post(char *body)
+static int tokenize_post(char *body)
 {
     const char *key;
     const char *value;
@@ -289,16 +298,25 @@ static void tokenize_post(char *body)
     key   = strtok_r(body, "=", &save);
     value = strtok_r(NULL, "=", &save);
 
+    if(key == NULL || value == NULL)
+    {
+        printf("Invalid post body structure\n");
+        return -1;
+    }
+
     store_in_db(key, value);
+    return 0;
 }
 
 void handle_request(int client_fd)
 {
     struct req_info info;
     char            buffer[BUFFER_SIZE];
+    char to_parse[BUFFER_SIZE];
     ssize_t         valread;
 
-    memset(buffer, 0, sizeof(buffer));
+    memset(buffer, 0, BUFFER_SIZE);
+    memset(to_parse, '\0', BUFFER_SIZE)
     valread = read(client_fd, buffer, BUFFER_SIZE);
     if(valread < 0)
     {
@@ -307,9 +325,10 @@ void handle_request(int client_fd)
         return;
     }
 
+    strncpy(to_parse, buffer, BUFFER_SIZE - 1);
     printf("INCOMING:\n%s\nEND BUFFER\n", buffer);
     // parse
-    parse_request(&info, buffer);
+    parse_request(&info, to_parse);
     // check for get, head, post
     if(strcmp("GET", info.method) == 0)
     {
@@ -382,7 +401,11 @@ void handle_request(int client_fd)
 
         // content_len = get_content_length(buffer);
         get_body_pos(buffer, &bodyptr);
-        tokenize_post(bodyptr);
+        if(tokenize_post(bodyptr) < 0)
+        {
+            construct_get_response400(client_fd);
+            return;
+        }
         construct_response(client_fd, "200 OK", NULL, "text/html", 0);
         return;
     }
