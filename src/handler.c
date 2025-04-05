@@ -316,7 +316,7 @@ void handle_request(int client_fd)
     ssize_t         valread;
 
     memset(buffer, 0, BUFFER_SIZE);
-    memset(to_parse, '\0', BUFFER_SIZE)
+    memset(to_parse, '\0', BUFFER_SIZE);
     valread = read(client_fd, buffer, BUFFER_SIZE);
     if(valread < 0)
     {

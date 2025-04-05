@@ -1,2 +1,1 @@
 main src/main.c src/server.c src/worker.c dl gdbm_compat
-query src/query.c gdbm_compat

@@ -69,7 +69,7 @@ _Noreturn static void worker_process(int worker_id)
         char               client_ip[INET_ADDRSTRLEN];
         void              *handler_lib      = NULL;
         void (*handler_func)(int client_fd) = NULL;
-        void (*init_handler_func)(void) = NULL;
+        void (*init_handler_func)(void)     = NULL;
 
         FD_ZERO(&read_fds);
         FD_SET(server_fd, &read_fds);
@@ -124,7 +124,7 @@ _Noreturn static void worker_process(int worker_id)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
         init_handler_func = (void (*)(void))dlsym(handler_lib, "init_handler");
-        handler_func = (void (*)(int))dlsym(handler_lib, "handle_request");
+        handler_func      = (void (*)(int))dlsym(handler_lib, "handle_request");
 #pragma GCC diagnostic pop
         if(!handler_func)
         {
