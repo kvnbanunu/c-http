@@ -60,18 +60,32 @@ Build with D'arcy's system:
    ./build-all.sh
    ```
 
-Build with Make:
+Build the shared library:
+
+From project root/
+
 ```sh
-make build
+make lib
+```
+
+Copy the public directory into the build directory
+
+```sh
+cp -R public build/
 ```
 
 ---
 
 ## **Usage**
 
-Run with Make:
+1. Change Directory
 ```sh
-make run
+cd build/
+```
+
+2. Run server
+```sh
+./main
 ```
 
 Run directly:
