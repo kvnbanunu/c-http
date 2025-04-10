@@ -7,12 +7,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const key = keyE.value;
         const val = valE.value;
         try {
-            const response = await fetch("http://192.168.0.117:8080", {
+            const response = await fetch("http://localhost:8080", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
-                body: new URLSearchParams({ key: val })
+                  body: `${key}=${val}`
             });
 
             if (response.ok) {

@@ -19,7 +19,7 @@ lib: format
 	@$(CC) -fPIC $(HANDLER_SRC) $(HANDLER_FLAGS) -o $(HANDLER_TARGET)
 
 query:
-	@$(CC) src/query.c -o build/query
+	@$(CC) src/query.c -o build/query -lgdbm_compat
 
 debug: format
 	@mkdir -p debug/
