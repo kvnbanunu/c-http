@@ -18,6 +18,9 @@ lib: format
 	@mkdir -p build
 	@$(CC) -fPIC $(HANDLER_SRC) $(HANDLER_FLAGS) -o $(HANDLER_TARGET)
 
+query:
+	@$(CC) src/query.c -o build/query
+
 debug: format
 	@mkdir -p debug/
 	@clang -Wall -Wextra -Wpedantic -Wconversion src/main.c src/setup.c -o debug/server
